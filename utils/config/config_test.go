@@ -171,6 +171,58 @@ func TestHotkeyActionsAreIndependent(t *testing.T) {
 	}
 }
 
+func TestDownloadPathStorage(t *testing.T) {
+	sandbox(t)
+
+	if got, err := ReadDownloadPath(); err != nil || got != "" {
+		t.Fatalf("ReadDownloadPath() = %q, %v; want empty, nil", got, err)
+	}
+
+	if err := WriteDownloadPath("/tmp/some-dir"); err != nil {
+		t.Fatalf("WriteDownloadPath: %v", err)
+	}
+	if got, err := ReadDownloadPath(); err != nil || got != "/tmp/some-dir" {
+		t.Fatalf("ReadDownloadPath() = %q, %v; want /tmp/some-dir", got, err)
+	}
+
+	if err := DeleteDownloadPath(); err != nil {
+		t.Fatalf("DeleteDownloadPath: %v", err)
+	}
+	if got, _ := ReadDownloadPath(); got != "" {
+		t.Errorf("after delete, ReadDownloadPath() = %q, want empty", got)
+	}
+}
+
+func TestDefaultDownloadDirFallsBackToWcpFolder(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
+
+	got := DefaultDownloadDir()
+	want := filepath.Join(dir, "wcp")
+	if got != want {
+		t.Errorf("DefaultDownloadDir() = %q, want %q", got, want)
+	}
+	if info, err := os.Stat(got); err != nil || !info.IsDir() {
+		t.Errorf("DefaultDownloadDir() = %q was not created as a directory", got)
+	}
+}
+
+func TestDefaultDownloadDirPrefersExistingDownloads(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	if err := os.Mkdir(filepath.Join(dir, "Downloads"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	got := DefaultDownloadDir()
+	want := filepath.Join(dir, "Downloads")
+	if got != want {
+		t.Errorf("DefaultDownloadDir() = %q, want %q", got, want)
+	}
+}
+
 func TestGenKeyLengthAndCharset(t *testing.T) {
 	key, err := GenKey(32)
 	if err != nil {

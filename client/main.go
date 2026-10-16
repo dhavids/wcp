@@ -24,6 +24,9 @@ func main() {
 // busybox/toybox multiplex one binary under several names.
 func dispatch(args []string) int {
 	mode := strings.TrimSuffix(filepath.Base(args[0]), ".exe")
+	if !isHotkeyDaemonArgs(args[1:]) && !targetsHotkeyVerb(args[1:]) {
+		maybeHealHotkeyDaemon()
+	}
 	switch mode {
 	case "wcpc":
 		return rtlog.Track(entryPoint(), "wcpc", args, func() int { return runWcpc(args[1:]) })
@@ -88,6 +91,28 @@ func runWcp(args []string) int {
 	return rtlog.Track(entryPoint(), "upload", args, func() int { return doUpload(f) })
 }
 
+// isHotkeyDaemonArgs reports whether args is the daemon re-exec
+// itself — the self-heal check must not run from inside the daemon's
+// own process, or it'd just be checking that it's alive from within
+// itself.
+func isHotkeyDaemonArgs(args []string) bool {
+	for _, a := range args {
+		if a == "--hotkey-daemon" {
+			return true
+		}
+	}
+	return false
+}
+
+// targetsHotkeyVerb reports whether args is `get/set/clear hotkey
+// ...` — the hotkey subsystem manages its own daemon lifecycle
+// directly, so the generic self-heal check skips these to avoid an
+// odd restart-then-immediately-reconfigure sequence.
+func targetsHotkeyVerb(args []string) bool {
+	return len(args) >= 2 && args[1] == "hotkey" &&
+		(args[0] == "get" || args[0] == "set" || args[0] == "clear")
+}
+
 // bufferCmdName picks the history label for whichever buffer flag f
 // carries — accumulate, send, or clear are mutually exclusive here.
 func bufferCmdName(f *Flags) string {
@@ -101,8 +126,12 @@ func bufferCmdName(f *Flags) string {
 	}
 }
 
-// runPasteUpload handles -v/--paste: upload whatever is on the local
-// clipboard right now, as if it had arrived on stdin.
+// runPasteUpload handles -v/--paste and wcpc: upload whatever is on
+// the local clipboard right now. If that clipboard text is itself a
+// path to a real file (e.g. the user copied a filepath on purpose),
+// upload the file it names instead of the literal path string —
+// that's the documented way to get a file into wcpc/the copy hotkey,
+// since neither reads actual binary/file clipboard data directly.
 func runPasteUpload(f *Flags) int {
 	if len(f.Args) > 0 {
 		printError("-v/--paste takes no arguments (it uploads the clipboard)")
@@ -113,7 +142,18 @@ func runPasteUpload(f *Flags) int {
 		printError(fmt.Sprintf("-v found no clipboard tool; install %s", clipboard.Hint()))
 		return 1
 	}
+	if candidate := strings.TrimSpace(text); isUploadableFile(candidate) {
+		return uploadFile(f, candidate)
+	}
 	return uploadStdin(f, strings.NewReader(text))
+}
+
+// isUploadableFile reports whether path names a real, regular file —
+// used to tell "clipboard holds a filepath" apart from "clipboard
+// holds text that happens to contain slashes."
+func isUploadableFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // runExplicitDot handles `wcp . <code|url> [key]`, including a key

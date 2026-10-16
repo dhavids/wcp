@@ -29,6 +29,13 @@ const keysymControlL = 0xffe3
 
 const unitName = "wcp-hotkey.service"
 
+// processAlive checks /proc/<pid> directly — simplest portable check
+// across Linux distros, no syscall needed.
+func processAlive(pid int) bool {
+	_, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
+	return err == nil
+}
+
 func platformSupported() (bool, string) {
 	if os.Getenv("XDG_SESSION_TYPE") == "wayland" || os.Getenv("WAYLAND_DISPLAY") != "" {
 		return false, "this is a Wayland session — the hotkey daemon needs X11, no portal fallback yet"

@@ -62,6 +62,34 @@ func HistoryLogPath() string {
 	return filepath.Join(xdgCacheHome(), "wcp", "history.log")
 }
 
+// DownloadPathPath returns the stored custom-download-directory file
+// path, honoring $XDG_CONFIG_HOME.
+func DownloadPathPath() string {
+	return filepath.Join(xdgConfigHome(), "wcp", "download-path")
+}
+
+// DefaultDownloadDir returns the platform's own Downloads folder
+// (checked under $HOME/Downloads and $HOME/downloads, which covers
+// Linux, macOS, and Windows' %USERPROFILE%\Downloads alike) if it
+// already exists, else $HOME/wcp — created if necessary, so there's
+// always somewhere usable to save to even with no conventional
+// Downloads folder.
+func DefaultDownloadDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	for _, name := range []string{"Downloads", "downloads"} {
+		dir := filepath.Join(home, name)
+		if info, statErr := os.Stat(dir); statErr == nil && info.IsDir() {
+			return dir
+		}
+	}
+	fallback := filepath.Join(home, "wcp")
+	os.MkdirAll(fallback, 0o755)
+	return fallback
+}
+
 // ReadStoredKey returns the stored key, or "" if none is set.
 func ReadStoredKey() (string, error) {
 	data, err := os.ReadFile(KeyPath())
@@ -263,6 +291,44 @@ func SetHotkeyEnabled(action string, on bool) error {
 		return fmt.Errorf("config: writing hotkey-enabled marker: %w", err)
 	}
 	return nil
+}
+
+// ReadDownloadPath returns the stored custom download directory, or
+// "" if none is set (callers fall back to DefaultDownloadDir in that
+// case).
+func ReadDownloadPath() (string, error) {
+	data, err := os.ReadFile(DownloadPathPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("config: reading stored download path: %w", err)
+	}
+	return strings.TrimRight(string(data), "\n"), nil
+}
+
+// WriteDownloadPath stores path as-is; callers create the directory
+// themselves (resolveDownloadDir does, with its own fallback) rather
+// than failing the set call over a directory that doesn't exist yet.
+func WriteDownloadPath(path string) error {
+	p := DownloadPathPath()
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	if err := os.WriteFile(p, []byte(path+"\n"), 0o600); err != nil {
+		return fmt.Errorf("config: writing stored download path: %w", err)
+	}
+	return nil
+}
+
+// DeleteDownloadPath removes the stored download path, if any,
+// resetting future reads back to DefaultDownloadDir.
+func DeleteDownloadPath() error {
+	err := os.Remove(DownloadPathPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // GenKey returns a random key of length n drawn from [A-Za-z0-9], using

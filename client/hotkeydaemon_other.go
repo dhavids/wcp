@@ -30,3 +30,7 @@ func runHotkeyDaemon(combos map[string]hotkey.Combo, onTrigger func(action strin
 func simulateCopy() bool {
 	return false
 }
+
+func processAlive(pid int) bool {
+	return false
+}

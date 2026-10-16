@@ -9,7 +9,9 @@ import (
 )
 
 // verbTargets lists the identity/state nouns `wcp get/set/clear` accept.
-var verbTargets = map[string]bool{"key": true, "user": true, "crid": true, "hotkey": true}
+var verbTargets = map[string]bool{
+	"key": true, "user": true, "crid": true, "hotkey": true, "download-path": true,
+}
 
 // isVerbCommand reports whether args looks like `wcp get|set|clear
 // key|user|crid|hotkey ...` or `wcp get history [n]` — checked before
@@ -44,8 +46,10 @@ func runVerb(args []string) int {
 		return rtlog.Track(entryPoint(), cmd, args, func() int { return runUserVerb(verb, rest) })
 	case "crid":
 		return rtlog.Track(entryPoint(), cmd, args, func() int { return runCridVerb(verb, rest) })
-	default:
+	case "hotkey":
 		return rtlog.Track(entryPoint(), cmd, args, func() int { return runHotkeyVerb(verb, rest) })
+	default:
+		return rtlog.Track(entryPoint(), cmd, args, func() int { return runDownloadPathVerb(verb, rest) })
 	}
 }
 

@@ -42,6 +42,41 @@ func errNotSupported(reason string) error {
 	return errors.New(reason)
 }
 
+// maybeHealHotkeyDaemon restarts the hotkey daemon if some action is
+// supposed to be enabled but the daemon process isn't actually
+// running (crashed, killed, autostart didn't fire after a reboot,
+// ...). Called from every ordinary wcp/wcpc/wcpp/wcpv invocation, so
+// `wcp set hotkey <action> off` is the only way to stop it for good —
+// anything else just gets it going again next time wcp runs.
+func maybeHealHotkeyDaemon() {
+	combos, err := enabledCombos()
+	if err != nil || len(combos) == 0 {
+		return
+	}
+	if daemonRunning() {
+		return
+	}
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	startDaemonBackground(exePath)
+}
+
+// daemonRunning reports whether the pid recorded by the last
+// startDaemonBackground call is still alive.
+func daemonRunning() bool {
+	data, err := os.ReadFile(hotkeyPidPath())
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return false
+	}
+	return processAlive(pid)
+}
+
 // runHotkeyVerb handles `wcp get/set/clear hotkey`.
 func runHotkeyVerb(verb string, rest []string) int {
 	switch verb {
@@ -96,7 +131,12 @@ func runHotkeyDaemonMode() int {
 			}
 		})
 		if rc != 0 {
+			reason := lastErrorMsg
 			printError(fmt.Sprintf("hotkey trigger (%s): failed, rc=%d", action, rc))
+			// No terminal to show this to — leave the failure on the
+			// clipboard itself (the one channel guaranteed to exist),
+			// instead of silently leaving whatever was there before.
+			clipboard.Copy(fmt.Sprintf("wcp: %s", reason))
 		} else {
 			printInfo(fmt.Sprintf("hotkey trigger (%s): succeeded", action))
 		}

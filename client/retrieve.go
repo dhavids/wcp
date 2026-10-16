@@ -168,10 +168,10 @@ func retrieveURLTarget(f *Flags, target, retrievalKey, outFile string, sink outp
 // upload carries no wcp-name header to recover a filename from).
 func handleRetrievedBody(f *Flags, body []byte, explicitKey, outFile, contentType, url string, sink outputSink) int {
 	if explicitKey != "" {
-		return decryptAndEmit(explicitKey, body, outFile, sink)
+		return decryptAndEmit(f, explicitKey, body, outFile, sink)
 	}
 	if !isEncryptedBody(body) {
-		return emitPlain(body, outFile, contentType, url, sink)
+		return emitPlain(f, body, outFile, contentType, url, sink)
 	}
 
 	storedKey := ""
@@ -188,7 +188,7 @@ func handleRetrievedBody(f *Flags, body []byte, explicitKey, outFile, contentTyp
 		printError("run --set-key with the key from the machine that sent it")
 		return 1
 	}
-	return decryptAndEmit(storedKey, body, outFile, sink)
+	return decryptAndEmit(f, storedKey, body, outFile, sink)
 }
 
 // isEncryptedBody reports whether body looks like ciphertext we
@@ -202,8 +202,10 @@ func isEncryptedBody(body []byte) bool {
 }
 
 // decryptAndEmit decrypts body with key, then saves it under its
-// wcp-name header or hands it to sink, matching decrypt_and_emit.
-func decryptAndEmit(key string, body []byte, overrideOut string, sink outputSink) int {
+// wcp-name header or hands it to sink, matching decrypt_and_emit. A
+// save prints nothing but the resulting path — no "Saved to"/"Saved
+// as" text.
+func decryptAndEmit(f *Flags, key string, body []byte, overrideOut string, sink outputSink) int {
 	plaintext, err := cipher.Decrypt(string(body), key)
 	if err != nil {
 		printError("could not decrypt — the key may be wrong or the upload corrupted")
@@ -221,18 +223,18 @@ func decryptAndEmit(key string, body []byte, overrideOut string, sink outputSink
 			printError(err.Error())
 			return 1
 		}
-		printInfo("Saved to " + outName)
+		printInfo(outName)
 		return 0
 	}
 
 	if strings.HasPrefix(firstLine, "wcp-name:") {
 		name := strings.TrimPrefix(firstLine, "wcp-name:")
-		saveName := uniqueSaveName(name)
-		if err := os.WriteFile(saveName, rest, 0o644); err != nil {
+		savedPath, err := saveUnderDownloadDir(f, name, rest)
+		if err != nil {
 			printError(err.Error())
 			return 1
 		}
-		printInfo("Saved as " + saveName)
+		printInfo(savedPath)
 		return 0
 	}
 
@@ -246,15 +248,15 @@ func decryptAndEmit(key string, body []byte, overrideOut string, sink outputSink
 // filename to recover from the body itself: an explicit -o always
 // wins, else a text/* Content-Type goes to sink, else it's saved under
 // the URL's basename. Callers have already ruled out the
-// encrypted-body case.
-func emitPlain(body []byte, overrideOut, contentType, url string, sink outputSink) int {
+// encrypted-body case. A save prints nothing but the resulting path.
+func emitPlain(f *Flags, body []byte, overrideOut, contentType, url string, sink outputSink) int {
 	if overrideOut != "" {
 		outName := uniqueSaveName(overrideOut)
 		if err := os.WriteFile(outName, body, 0o644); err != nil {
 			printError(err.Error())
 			return 1
 		}
-		printInfo("Saved to " + outName)
+		printInfo(outName)
 		return 0
 	}
 	if strings.HasPrefix(contentType, "text/") {
@@ -266,12 +268,12 @@ func emitPlain(body []byte, overrideOut, contentType, url string, sink outputSin
 	if fname == "" || fname == "/" || fname == "." {
 		fname = "downloaded_file"
 	}
-	saveName := uniqueSaveName(fname)
-	if err := os.WriteFile(saveName, body, 0o644); err != nil {
+	savedPath, err := saveUnderDownloadDir(f, fname, body)
+	if err != nil {
 		printError(err.Error())
 		return 1
 	}
-	printInfo("Saved as " + saveName)
+	printInfo(savedPath)
 	return 0
 }
 

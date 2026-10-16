@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -59,6 +60,14 @@ type msg struct {
 
 func platformSupported() (bool, string) {
 	return true, ""
+}
+
+// processAlive reports whether pid is a live process. Unlike POSIX,
+// os.FindProcess on Windows actually opens a handle and fails if the
+// pid doesn't exist, so this is the check itself, not just a lookup.
+func processAlive(pid int) bool {
+	_, err := os.FindProcess(pid)
+	return err == nil
 }
 
 func installAutostart(execPath string) error {

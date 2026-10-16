@@ -33,6 +33,7 @@ type Flags struct {
 	Update       bool
 	NoStoredKey  bool
 	Permanent    bool
+	DownloadDir  string
 	HotkeyDaemon bool
 	Args         []string
 }
@@ -69,6 +70,10 @@ Options:
                          run from the repo, e.g. ./wcp --update, after a pull
   -v, --paste            upload the clipboard contents (takes no arguments)
   -z, --no-stored-key    ignore the stored key for this run
+  -d, --download-dir <dir>  save a retrieved file here instead of the
+                         default (created if missing; falls back to the
+                         default and prints that path if it can't be
+                         created)
   -h, --help             show this help
 
 Identity (no flags of their own):
@@ -81,6 +86,9 @@ Identity (no flags of their own):
   wcp set crid <value>   store a <username>-<key> pair in one call
   wcp get crid           print username and key as <username>-<key>
   wcp clear crid         forget both username and key
+  wcp set download-path <dir>   always save retrieved files here
+  wcp get download-path         print the stored path (or the default)
+  wcp clear download-path       forget it, back to the default
   wcp set hotkey copy|paste on [combo]   enable a global hotkey (default
                          ctrl+alt+c for copy, ctrl+alt+v for paste); copy
                          uploads the clipboard, paste needs a self-hosted
@@ -159,6 +167,12 @@ func ParseArgs(args []string) (*Flags, error) {
 				return nil, err
 			}
 			f.OutFile = v
+		case "-d", "--download-dir":
+			v, err := next()
+			if err != nil {
+				return nil, err
+			}
+			f.DownloadDir = v
 		case "-k", "--key-len":
 			v, err := next()
 			if err != nil {
