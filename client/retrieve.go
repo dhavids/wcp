@@ -202,9 +202,10 @@ func isEncryptedBody(body []byte) bool {
 }
 
 // decryptAndEmit decrypts body with key, then saves it under its
-// wcp-name header or hands it to sink, matching decrypt_and_emit. A
-// save prints nothing but the resulting path — no "Saved to"/"Saved
-// as" text.
+// wcp-name header or hands it to sink, matching decrypt_and_emit. -o
+// and -d both force a save even without a wcp-name header (there's
+// nothing to sink if the user explicitly asked for a file); either
+// way a save prints nothing but the resulting path.
 func decryptAndEmit(f *Flags, key string, body []byte, overrideOut string, sink outputSink) int {
 	plaintext, err := cipher.Decrypt(string(body), key)
 	if err != nil {
@@ -213,53 +214,36 @@ func decryptAndEmit(f *Flags, key string, body []byte, overrideOut string, sink 
 	}
 
 	firstLine, rest := splitFirstLine(plaintext)
-	if overrideOut != "" {
-		outName := uniqueSaveName(overrideOut)
-		data := plaintext
-		if strings.HasPrefix(firstLine, "wcp-name:") {
-			data = rest
-		}
-		if err := os.WriteFile(outName, data, 0o644); err != nil {
-			printError(err.Error())
-			return 1
-		}
-		printInfo(outName)
+	hasName := strings.HasPrefix(firstLine, "wcp-name:")
+
+	if overrideOut == "" && f.DownloadDir == "" && !hasName {
+		sink(plaintext)
 		return 0
 	}
 
-	if strings.HasPrefix(firstLine, "wcp-name:") {
-		name := strings.TrimPrefix(firstLine, "wcp-name:")
-		savedPath, err := saveUnderDownloadDir(f, name, rest)
-		if err != nil {
-			printError(err.Error())
-			return 1
-		}
-		printInfo(savedPath)
-		return 0
+	data, name := plaintext, "download"
+	if hasName {
+		data, name = rest, strings.TrimPrefix(firstLine, "wcp-name:")
 	}
-
-	sink(plaintext)
+	savedPath, err := saveUnderDownloadDir(f, name, data)
+	if err != nil {
+		printError(err.Error())
+		return 1
+	}
+	printInfo(savedPath)
 	return 0
 }
 
 // emitPlain delivers a plain (unencrypted) retrieval, matching
 // retrieve_url's own branch exactly — a plain upload carries no
 // wcp-name header (that's only added when encrypting), so there's no
-// filename to recover from the body itself: an explicit -o always
-// wins, else a text/* Content-Type goes to sink, else it's saved under
-// the URL's basename. Callers have already ruled out the
+// filename to recover from the body itself beyond the URL's basename.
+// -o/-d force a save even for text/* content, same reasoning as
+// decryptAndEmit above. Callers have already ruled out the
 // encrypted-body case. A save prints nothing but the resulting path.
 func emitPlain(f *Flags, body []byte, overrideOut, contentType, url string, sink outputSink) int {
-	if overrideOut != "" {
-		outName := uniqueSaveName(overrideOut)
-		if err := os.WriteFile(outName, body, 0o644); err != nil {
-			printError(err.Error())
-			return 1
-		}
-		printInfo(outName)
-		return 0
-	}
-	if strings.HasPrefix(contentType, "text/") {
+	isText := strings.HasPrefix(contentType, "text/")
+	if overrideOut == "" && f.DownloadDir == "" && isText {
 		sink(body)
 		return 0
 	}

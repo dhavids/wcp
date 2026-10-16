@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"wcp/utils/config"
 )
@@ -63,33 +64,64 @@ func doClearDownloadPath() int {
 	return 0
 }
 
-// resolveDownloadDir picks where a saved file should land: -d wins,
-// then the stored `download-path` setting, then the platform default
-// (DefaultDownloadDir). If the chosen directory can't be created, it
-// falls back to the platform default and uses that instead — a save
-// should never just fail because a custom path went stale.
-func resolveDownloadDir(f *Flags) string {
-	dir := f.DownloadDir
+// splitDownloadOverride splits -d's argument into a directory and an
+// optional filename: -d can be a bare directory (existing, or ending
+// in a separator), or a path with a filename at the end (e.g.
+// -d ~/stuff/report.pdf), in which case that filename wins over the
+// retrieval's own name.
+func splitDownloadOverride(path string) (dir, name string) {
+	if path == "" {
+		return "", ""
+	}
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return path, ""
+	}
+	if strings.HasSuffix(path, string(filepath.Separator)) {
+		return strings.TrimSuffix(path, string(filepath.Separator)), ""
+	}
+	return filepath.Dir(path), filepath.Base(path)
+}
+
+// resolveSavePath picks exactly where a retrieved file should land,
+// given its own name (from a wcp-name header, or a plain retrieval's
+// URL basename): -d's directory wins, then the stored `download-path`
+// setting, then the platform default — and if the chosen directory
+// can't be created, falls back to the platform default instead, so a
+// save never just fails because a custom path went stale. The
+// filename is -d's own embedded name if it had one, else -o, else
+// originalName.
+func resolveSavePath(f *Flags, originalName string) string {
+	dir, dirName := "", ""
+	if f.DownloadDir != "" {
+		dir, dirName = splitDownloadOverride(f.DownloadDir)
+	}
 	if dir == "" {
 		dir, _ = config.ReadDownloadPath()
 	}
 	if dir == "" {
-		return config.DefaultDownloadDir()
+		dir = config.DefaultDownloadDir()
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return config.DefaultDownloadDir()
+		dir = config.DefaultDownloadDir()
 	}
-	return dir
+
+	name := originalName
+	if f.OutFile != "" {
+		name = f.OutFile
+	}
+	if dirName != "" {
+		name = dirName
+	}
+	return uniqueSaveName(filepath.Join(dir, name))
 }
 
-// saveUnderDownloadDir saves data as name inside the resolved
-// download directory, returning the actual path used — which is what
-// gets printed, since a fallback may have changed it.
+// saveUnderDownloadDir saves data under name, resolved via
+// resolveSavePath, returning the actual path used — which is what
+// gets printed, since an override or a fallback may have changed it.
 func saveUnderDownloadDir(f *Flags, name string, data []byte) (string, error) {
-	dir := resolveDownloadDir(f)
-	outName := uniqueSaveName(filepath.Join(dir, name))
-	if err := os.WriteFile(outName, data, 0o644); err != nil {
+	outPath := resolveSavePath(f, name)
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
 		return "", err
 	}
-	return outName, nil
+	return outPath, nil
 }
